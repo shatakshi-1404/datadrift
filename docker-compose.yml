@@ -1,0 +1,72 @@
+services:
+  db:
+    image: postgres:16
+    container_name: datadrift-db
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    ports:
+      - "5432:5432"
+    volumes:
+      - datadrift_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build: ./backend
+    container_name: datadrift-backend
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      APP_ENV: production
+      DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:5173}
+      DATASET_STORAGE_PATH: /app/storage/datasets
+      MODEL_STORAGE_PATH: /app/storage/models
+      MLFLOW_TRACKING_URI: /app/mlruns
+      MAX_UPLOAD_SIZE: ${MAX_UPLOAD_SIZE:-20971520}
+      ML_RANDOM_STATE: ${ML_RANDOM_STATE:-42}
+      KS_PVALUE_THRESHOLD: ${KS_PVALUE_THRESHOLD:-0.05}
+      PSI_WARNING_THRESHOLD: ${PSI_WARNING_THRESHOLD:-0.1}
+      PSI_DRIFT_THRESHOLD: ${PSI_DRIFT_THRESHOLD:-0.25}
+      PSI_BUCKETS: ${PSI_BUCKETS:-10}
+      CHI2_PVALUE_THRESHOLD: ${CHI2_PVALUE_THRESHOLD:-0.05}
+      MISSING_INCREASE_WARNING_THRESHOLD: ${MISSING_INCREASE_WARNING_THRESHOLD:-5}
+      MISSING_INCREASE_CRITICAL_THRESHOLD: ${MISSING_INCREASE_CRITICAL_THRESHOLD:-15}
+      DUPLICATE_WARNING_THRESHOLD: ${DUPLICATE_WARNING_THRESHOLD:-1}
+      DUPLICATE_CRITICAL_THRESHOLD: ${DUPLICATE_CRITICAL_THRESHOLD:-5}
+      PERFORMANCE_DEGRADATION_THRESHOLD: ${PERFORMANCE_DEGRADATION_THRESHOLD:-0.05}
+      SHAP_BACKGROUND_SAMPLE_SIZE: ${SHAP_BACKGROUND_SAMPLE_SIZE:-200}
+    volumes:
+      - ./storage:/app/storage
+      - ./mlruns:/app/mlruns
+    ports:
+      - "8000:8000"
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        VITE_API_URL: http://localhost:8000
+    container_name: datadrift-frontend
+    depends_on:
+      - backend
+    ports:
+      - "5173:80"
+
+  mlflow-ui:
+    build: ./backend
+    container_name: datadrift-mlflow-ui
+    command: ["mlflow", "ui", "--backend-store-uri", "/app/mlruns", "--host", "0.0.0.0", "--port", "5001"]
+    volumes:
+      - ./mlruns:/app/mlruns
+    ports:
+      - "5001:5001"
+
+volumes:
+  datadrift_pgdata:
